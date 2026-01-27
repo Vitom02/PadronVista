@@ -1,0 +1,183 @@
+workflows:
+  ios_release:
+    name: iOS Release (App Store)
+    instance_type: mac_mini_m1
+    integrations:
+      app_store_connect: Vista South
+    environment:
+      flutter: stable
+      vars:
+        APP_BUNDLE_IDENTIFIER: "com.padrontag.padrontag"
+        FLUTTER_BUILD_NAME: "1.0.1"
+    scripts:
+      - name: Generate automatic build number
+        script: |
+          set -e
+          TIMESTAMP=$(date +%s)
+          BUILD_NUMBER=${TIMESTAMP: -9}
+          BUILD_NUMBER=$((10#$BUILD_NUMBER))
+          echo "FLUTTER_BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
+          echo "✅ Build number: $BUILD_NUMBER"
+
+      - name: Set up iOS code signing
+        script: |
+          set -e
+          echo "🔐 Configurando firma de código..."
+          keychain initialize
+          
+          echo "📥 Descargando certificados y perfiles..."
+          app-store-connect fetch-signing-files "$APP_BUNDLE_IDENTIFIER" \
+            --type IOS_APP_STORE \
+            --create
+          
+          echo "🔑 Agregando certificados al keychain..."
+          keychain add-certificates
+          
+          echo "📋 Configurando perfiles en Xcode..."
+          xcode-project use-profiles
+          
+          echo "✅ Firma de código configurada"
+
+      - name: Install dependencies
+        script: |
+          set -e
+          echo "📦 Instalando dependencias..."
+          flutter pub get
+          cd ios
+          pod install --repo-update
+          cd ..
+          echo "✅ Dependencias instaladas"
+
+      - name: Build iOS IPA
+        script: |
+          set -e
+          source $CM_ENV
+          
+          echo "=========================================="
+          echo "🏗️ COMPILANDO iOS"
+          echo "Bundle ID: $APP_BUNDLE_IDENTIFIER"
+          echo "Version: $FLUTTER_BUILD_NAME"
+          echo "Build: $FLUTTER_BUILD_NUMBER"
+          echo "=========================================="
+          
+          flutter build ipa \
+            --release \
+            --build-name="$FLUTTER_BUILD_NAME" \
+            --build-number="$FLUTTER_BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist
+          
+          echo "✅ Build completado"
+
+      - name: Verify IPA
+        script: |
+          set -e
+          IPA_PATH=$(find build/ios/ipa -name "*.ipa" | head -1)
+          if [ -n "$IPA_PATH" ]; then
+            echo "✅ IPA generado: $IPA_PATH"
+            ls -lh "$IPA_PATH"
+          else
+            echo "❌ ERROR: No se encontró el IPA"
+            exit 1
+          fi
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+
+    publishing:
+      email:
+        recipients:
+          - "vitomuzio02@gmail.com"
+        notify:
+          success: true
+          failure: true
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
+  android_release:
+    name: Android Release (Google Play)
+    instance_type: mac_mini_m1
+    environment:
+      flutter: stable
+      java: 17
+      groups:
+        - google_play_credentials
+      vars:
+        PACKAGE_NAME: "com.padrontag.padrontag"
+        FLUTTER_BUILD_NAME: "1.0.1"
+        CM_KEYSTORE_PATH: android/app/key.jks
+    scripts:
+      - name: Generate automatic build number
+        script: |
+          set -e
+          TIMESTAMP=$(date +%s)
+          BUILD_NUMBER=${TIMESTAMP: -9}
+          BUILD_NUMBER=$((10#$BUILD_NUMBER))
+          echo "FLUTTER_BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
+          echo "✅ Build number: $BUILD_NUMBER"
+
+      - name: Set up key.properties
+        script: |
+          set -e
+          echo "🔐 Configurando firma de código Android..."
+          cat >> "$CM_BUILD_DIR/android/key.properties" <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          storeFile=$CM_BUILD_DIR/$CM_KEYSTORE_PATH
+          EOF
+          echo "✅ key.properties configurado"
+
+      - name: Install dependencies
+        script: |
+          set -e
+          echo "📦 Instalando dependencias..."
+          flutter pub get
+          echo "✅ Dependencias instaladas"
+
+      - name: Build Android AAB
+        script: |
+          set -e
+          source $CM_ENV
+          
+          echo "=========================================="
+          echo "🏗️ COMPILANDO Android"
+          echo "Package: $PACKAGE_NAME"
+          echo "Version: $FLUTTER_BUILD_NAME"
+          echo "Build: $FLUTTER_BUILD_NUMBER"
+          echo "=========================================="
+          
+          flutter build appbundle \
+            --release \
+            --build-name="$FLUTTER_BUILD_NAME" \
+            --build-number="$FLUTTER_BUILD_NUMBER"
+          
+          echo "✅ Build completado"
+
+      - name: Verify AAB
+        script: |
+          set -e
+          AAB_PATH=$(find build -name "*.aab" | head -1)
+          if [ -n "$AAB_PATH" ]; then
+            echo "✅ AAB generado: $AAB_PATH"
+            ls -lh "$AAB_PATH"
+          else
+            echo "❌ ERROR: No se encontró el AAB"
+            exit 1
+          fi
+
+    artifacts:
+      - build/**/outputs/**/*.aab
+      - build/**/outputs/**/mapping.txt
+
+    publishing:
+      email:
+        recipients:
+          - "vitomuzio02@gmail.com"
+        notify:
+          success: true
+          failure: true
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
