@@ -194,7 +194,9 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final tag = _tagController.text.trim();
+    final tagOriginal = _tagController.text.trim();
+    final tag = tagOriginal.replaceFirst(RegExp(r'^0+'), '');
+    
     if (tag.isEmpty || tag.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -241,6 +243,38 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _limpiarFormulario() {
+    setState(() {
+      _selectedBarrio = null;
+      _selectedLote = null;
+      _lotes = [];
+      _tagController.clear();
+      _patenteController.clear();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Formulario limpiado'),
+        backgroundColor: Color(0xFF78909C),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  String _limpiarCerosTag(String contenido) {
+    final lineas = contenido.split('\n');
+    final lineasLimpias = lineas.map((linea) {
+      if (linea.trim().isEmpty) return linea;
+      final partes = linea.split('|');
+      if (partes.length >= 2) {
+        final tagLimpio = partes[1].replaceFirst(RegExp(r'^0+'), '');
+        partes[1] = tagLimpio.isEmpty ? '0' : tagLimpio;
+        return partes.join('|');
+      }
+      return linea;
+    }).toList();
+    return lineasLimpias.join('\n');
+  }
+
   Future<void> _compartirArchivo() async {
     debugPrint('=== INICIANDO COMPARTIR ARCHIVO ===');
     try {
@@ -265,12 +299,17 @@ class _HomePageState extends State<HomePage> {
       }
 
       final contenido = await file.readAsString();
-      debugPrint('Contenido del archivo: $contenido');
-      debugPrint('Tamaño: ${contenido.length} caracteres');
+      final contenidoLimpio = _limpiarCerosTag(contenido);
+      debugPrint('Contenido original: $contenido');
+      debugPrint('Contenido limpio: $contenidoLimpio');
+      
+      final directory = await getApplicationDocumentsDirectory();
+      final archivoTemporal = File('${directory.path}/PADRONTAG_ENVIO.txt');
+      await archivoTemporal.writeAsString(contenidoLimpio);
       
       debugPrint('Intentando compartir...');
       final result = await Share.shareXFiles(
-        [XFile(file.path)],
+        [XFile(archivoTemporal.path, name: 'PADRONTAG.txt')],
         text: 'PADRONTAG - Registros',
       );
       debugPrint('Resultado compartir: ${result.status}');
@@ -349,11 +388,9 @@ class _HomePageState extends State<HomePage> {
                       },
                     ),
                     const SizedBox(height: 20),
-                    _buildEditableScannerField(
+                    _buildTextField(
                       label: 'Tag *',
                       controller: _tagController,
-                      icon: Icons.qr_code_scanner_rounded,
-                      onScan: _scanTag,
                       keyboardType: TextInputType.number,
                     ),
                     const SizedBox(height: 20),
@@ -390,7 +427,7 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: ElevatedButton.icon(
                             onPressed: _compartirArchivo,
@@ -404,6 +441,29 @@ class _HomePageState extends State<HomePage> {
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF25D366),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 3,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _limpiarFormulario,
+                            icon: const Icon(Icons.clear_all),
+                            label: const Text(
+                              'Limpiar',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF78909C),
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
@@ -531,6 +591,51 @@ class _HomePageState extends State<HomePage> {
               color: value != null ? const Color(0xFF37474F) : const Color(0xFF9E9E9E),
               fontWeight: FontWeight.w500,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required String label,
+    required TextEditingController controller,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        style: const TextStyle(
+          color: Color(0xFF37474F),
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(
+            color: Color(0xFF546E7A),
+            fontWeight: FontWeight.w500,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 12,
           ),
         ),
       ),
